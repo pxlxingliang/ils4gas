@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=45", "setuptools_scm>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ils4gas"
+dynamic = ["version"]
+description = "ils4gas"
+requires-python = ">=3.11"
+
+[project.scripts]
+ils4gas = "ils4gas.main:main"
+
+[tool.setuptools]
+package-dir = { "ils4gas" = "src/ils4gas" }
+
+[tool.setuptools_scm]
+
+[tool.setuptools.dynamic]
+version = { attr = "ils4gas.version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ils4gas*"]
+exclude = ["tests*", "docs*", "examples*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]  
+testpaths = ["tests"] 
+addopts = "-v"        
+
+[project.optional-dependencies]
+dev = ["mcp>=1.9.0",
+       "google-adk",
+       "science-agent-sdk"
+]
