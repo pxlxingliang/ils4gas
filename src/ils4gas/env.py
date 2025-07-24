@@ -14,6 +14,8 @@ ENVS = {
     "LLM_API_KEY": "",
     "LLM_BASE_URL": "",
     
+    "ILS4GAS_DATASET_PATH": "",  # Path to the dataset file, e.g., "/path/to/dataset.pkl"
+    
     "_comments":{
         "ILS4GAS_WORK_PATH": "The working directory, where all temporary files will be stored.",
         "ILS4GAS_TRANSPORT": "The transport protocol, can be 'sse' or 'streamable-http'.",
@@ -21,7 +23,8 @@ ENVS = {
         "ILS4GAS_PORT": "The port number for the server.",
         "LLM_MODEL": "The model to use for the LLM, e.g., 'gpt-3.5-turbo'.",
         "LLM_API_KEY": "The API key for the LLM service.",
-        "LLM_BASE_URL": "The base URL for the LLM service, if applicable."
+        "LLM_BASE_URL": "The base URL for the LLM service, if applicable.",
+        "ILS4GAS_DATASET_PATH": "The path to the dataset file, e.g., '/path/to/dataset.pkl'. This is used for searching properties of gas in ionic liquid systems."
     }
 }
 

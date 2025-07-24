@@ -42,7 +42,7 @@ root_agent = Agent(
     description=(
         "ils4gas agent"
     ),
-    instruction="You are an agent that can use tools to solve problems",
+    instruction="You are an agent can search the properties of gas in ionic liquid systems.",
     tools=[toolset]
 )
     """

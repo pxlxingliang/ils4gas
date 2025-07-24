@@ -10,6 +10,7 @@ import uuid
 import glob
 
 
+
 def run_command(
         cmd,
         shell=True
@@ -116,3 +117,37 @@ def generate_work_path(create: bool = True) -> str:
         os.makedirs(work_path, exist_ok=True)
     
     return work_path
+
+def xyz_to_smiles(xyz_path):
+    """
+    Convert an XYZ file to SMILES format using Open Babel.
+    
+    Args:
+        xyz_path (str): The path to the XYZ file.
+        
+    Returns:
+        str: The SMILES representation of the molecule.
+    
+    Example:
+        >>> smiles = xyz_to_smiles("molecule.xyz") # molecule is benzene
+        >>> print(smiles)
+        C1=CC=CC=C1
+    """
+    from openbabel import pybel
+    mol = next(pybel.readfile("xyz", xyz_path))
+    smiles = mol.write("smi").strip().split()[0]
+    
+    return to_canonical_smiles(smiles)
+
+def to_canonical_smiles(smiles):
+    """ Convert a SMILES string to its canonical form using RDKit.
+    Args:
+        smiles (str): The SMILES string to convert.
+    Returns:
+        str: The canonical SMILES string, or None if conversion fails.
+    """
+    from rdkit import Chem
+    mol = Chem.MolFromSmiles(smiles)
+    if mol:
+        return Chem.MolToSmiles(mol, canonical=True)
+    return None

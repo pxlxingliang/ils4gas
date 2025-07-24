@@ -3,6 +3,7 @@ from typing import Literal, Optional, Dict, Any, List, Tuple, Union
 
 from ils4gas.init_mcp import mcp
 from ils4gas.modules.util.comm import generate_work_path
+import os
 
 @mcp.tool()
 def generate_bulk_structure(element: str, 
@@ -169,3 +170,62 @@ def generate_molecule_structure(
         "cell": atoms.get_cell().tolist(),
         "coordinate": atoms.get_positions().tolist()
     }
+
+@mcp.tool()
+def search_properties_from_database(
+    gas: Literal['c2h4', 'c2h2', 'c3h8', 'ch4', 'cl2', 'co', 'co2', \
+        'h2', 'hcn', 'n2', 'nh3', 'no2', 'so2'],
+    cation: Literal['allylmim', 'allylmpy', 'allylPy', 'amim', 'bbbu', \
+        'bmpy', 'c1mim', 'C1Py', 'c2mim', 'C2Py', 'c3mim', 'C3Py', 'c4mim', \
+        'C4Py', 'c6mim', 'C6Py', 'c8mim', 'c12mim', 'c18mim', 'ch', 'cynaolmim', \
+        'cynaolmpy', 'cynaolPy', 'dea', 'dmea', 'empy', 'epp', 'epr', 'epy', \
+        'hbbu', 'hdbu', 'Hmim', 'hmpy', 'hobmim', 'mbn', 'mdbu', 'mea', 'meoim', \
+        'mmpy', 'n444', 'n1122', 'N2222', 'nbmim', 'nh444', 'obbu', 'p1444', 'p4444', \
+        'p44414', 'p44416', 'phenethylmim', 'phenethylmpy', 'phenethylPy', 'py5', 'py6', \
+        'pyr14', 'pyr14OCH3', 's222', 'sbmim', 'tea', 'tmg'],
+    anion: Literal['Alanine', 'alcl4', 'arginine', 'asparagine-', 'asparticacid', 'bcn4', \
+        'be', 'bf4', 'bh2cn2', 'br', 'BuNHC3SO3-', 'C8H9SO4-', 'cf3coo', 'CF3SO3-', 'CH2OHCH2COO-', \
+        'CH3CH2COO-', 'CH3CHOHCOO-', 'chc', 'cl', 'clo4', 'cpc', 'cysteine', 'dca', 'diethNC3SO3-', \
+        'dimeNC3SO3-', 'fecl4', 'glutamicacid', 'glutamine-', 'Glycine-', 'HCOO-', 'HeNHC3SO3-', 'hso4', \
+        'im', 'isobuNHC3SO3-', 'Isoleucine', 'isoproNHC3SO3-', 'Lac-', 'Leucine', 'lysine', 'meso4', \
+        'Methionine', 'no3', 'oac', 'pf6', 'Pheneylalanine', 'Proline', 'scn', 'Serine', 'threonine-', \
+        'tryptophan_1', 'tyrosine', 'Valine'] ,
+    properties: List[Literal["solvation_free_energy", "free_volume", "total_free_volume", "free_volume_fraction", "self_diffusion_coefficient"]] = ['solvation_free_energy']
+    )->Dict[str, Union[str, float]]:
+    """
+    Search properties of gas in ionic liquid systems from the database.
+    
+    Args:
+        gas (str): The gas species to search for. Options include 'c2h4', 'c2h2', 'c3h8', 'ch4', 'cl2', 'co', 'co2', \
+                   'h2', 'hcn', 'n2', 'nh3', 'no2', 'so2'.
+        cation (str): The cation species to search for. Options include various imidazolium, pyridinium, and other cations.
+        anion (str): The anion species to search for. Options include various carboxylates, sulfonates, and other anions.
+        properties (list): List of properties to retrieve. Below properties are available:
+            - "solvation_free_energy": Solvation free energy of the gas in the ionic liquid system, the unit is kcal/mol.
+            - "free_volume": Free volume of the system, the unit is Angstrom^3.
+            - "total_free_volume": Total free volume of the system, the unit is Angstrom^3.
+            - "free_volume_fraction": Free volume fraction of the system, the unit is percentage.
+            - "self_diffusion_coefficient": Self-diffusion coefficient of the gas in the ionic liquid system, the unit is m^2/s.
+    
+    Returns:
+        dict: A dictionary containing the requested properties for the specified gas, cation, and anion.
+    """
+    import pickle
+    
+    dataset_path = os.environ.get("ILS4GAS_DATASET_PATH", None)
+    if dataset_path is None:
+        raise ValueError("Environment variable ILS4GAS_DATASET_PATH is not set. Please set it to the path of the dataset.")
+
+    dataset = pickle.load(open(dataset_path, "rb"))
+    
+    key_name = f"{gas}_{cation}_{anion}"
+    if key_name not in dataset:
+        raise ValueError(f"Data for {key_name} not found in the dataset.")
+    
+    values = {}
+    for prop in properties:
+        if prop in dataset[key_name]:
+            values[prop] = dataset[key_name][prop]
+        else:
+            values[prop] = "Property not available"
+    return values
