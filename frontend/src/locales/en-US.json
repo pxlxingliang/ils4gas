@@ -1,0 +1,32 @@
+{
+  "app": { "title": "ILS4GAS" },
+  "sidebar": {
+    "newChat": "New Chat",
+    "noSessions": "No sessions",
+    "delete": "Delete"
+  },
+  "chat": {
+    "placeholder": "Type a message... (Enter to send, Shift+Enter for new line)",
+    "send": "Send",
+    "stop": "Stop",
+    "thinking": "Thinking...",
+    "empty": "Start a new conversation"
+  },
+  "model": {
+    "selector": "Model",
+    "loading": "Loading...",
+    "error": "Failed to load models"
+  },
+  "error": {
+    "auth": "API Key authentication failed. Check apiKey in ~/.ils4gas/config.json",
+    "network": "Network error. Please verify the server is running.",
+    "unknown": "An unknown error occurred"
+  },
+  "settings": {
+    "title": "Settings",
+    "theme": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "language": "Language"
+  }
+}

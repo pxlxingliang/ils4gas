@@ -1,0 +1,32 @@
+{
+  "app": { "title": "ILS4GAS" },
+  "sidebar": {
+    "newChat": "新建对话",
+    "noSessions": "暂无会话",
+    "delete": "删除"
+  },
+  "chat": {
+    "placeholder": "输入消息... (Enter 发送, Shift+Enter 换行)",
+    "send": "发送",
+    "stop": "停止",
+    "thinking": "思考中",
+    "empty": "开始一段新对话吧"
+  },
+  "model": {
+    "selector": "模型",
+    "loading": "加载中...",
+    "error": "获取模型列表失败"
+  },
+  "error": {
+    "auth": "API Key 鉴权失败，请检查 ~/.ils4gas/config.json 中的 apiKey 配置",
+    "network": "网络连接失败，请确认服务已启动",
+    "unknown": "发生未知错误"
+  },
+  "settings": {
+    "title": "设置",
+    "theme": "主题",
+    "light": "亮色",
+    "dark": "暗色",
+    "language": "语言"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "currentModel": "volcengine/deepseek-v3.2",
+  "providers": {
+    "volcengine": {
+      "name": "Volcano Engine",
+      "type": "openai-compatible",
+      "options": {
+        "baseURL": "https://ark.cn-beijing.volces.com/api/coding/v3",
+        "apiKey": "your-api-key-here"
+      },
+      "models": {
+        "deepseek-v3.2": {
+          "name": "DeepSeek V3.2",
+          "limit": { "context": 128000, "output": 4096 }
+        },
+        "deepseek-r1-250528": {
+          "name": "DeepSeek R1",
+          "limit": { "context": 256000, "output": 4096 }
+        },
+        "glm-4.7": {
+          "name": "GLM-4.7",
+          "limit": { "context": 200000, "output": 4096 }
+        },
+        "doubao-seed-2.0-code": {
+          "name": "Doubao Seed 2.0 Code",
+          "limit": { "context": 256000, "output": 4096 }
+        }
+      }
+    },
+    "openai": {
+      "name": "OpenAI",
+      "type": "openai",
+      "options": {
+        "apiKey": "your-api-key-here"
+      },
+      "models": {
+        "gpt-4o": {
+          "name": "GPT-4o",
+          "limit": { "context": 128000, "output": 16384 }
+        }
+      }
+    }
+  },
+  "mcp_servers": [
+    {
+      "name": "example_filesystem",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "auto_connect": false
+    }
+  ]
+}
