@@ -26,11 +26,8 @@ cd ils4gas
 # 3. Build frontend (static assets are packaged into the wheel)
 cd frontend && npm install && npm run build && cd ..
 
-# 4. Install the package with optional materials support
-pip install ".[materials]"
-
-# (Optional) Include openbabel + rdkit for SMILES conversion
-# pip install ".[materials,tools]"
+# 4. Install the package
+pip install .
 ```
 
 ## Configuration
@@ -169,5 +166,6 @@ See the `docs/` directory for developer documentation:
 - fastapi + uvicorn (web server)
 - openai (LLM client)
 - mcp >= 1.9.0 (Model Context Protocol)
-- ase (structure generation — optional, `[materials]` extra)
+- ase (structure generation)
+- openbabel + rdkit (SMILES conversion)
 - Node.js >= 18 (frontend build only)
