@@ -10,48 +10,47 @@
 - **Novel Ion Generation** — Generate novel ionic liquid molecules using machine learning
 - **Binding Energy Prediction** — Predict binding energy between molecular structures
 
-## Quick Start
+## Installation
 
-### 1. Clone & Build Frontend
+**Requirements:** Python >= 3.11 and Node.js >= 20 are recommended. We suggest using Conda to create an isolated environment:
 
 ```bash
+# 1. Create conda environment
+conda create -n ils4gas python=3.11 nodejs=20 -y
+conda activate ils4gas
+
+# 2. Clone the repository
 git clone https://github.com/pxlxingliang/ils4gas.git
 cd ils4gas
+
+# 3. Build frontend (static assets are packaged into the wheel)
 cd frontend && npm install && npm run build && cd ..
-```
 
-### 2. Install
-
-```bash
+# 4. Install the package with optional materials support
 pip install ".[materials]"
+
+# (Optional) Include openbabel + rdkit for SMILES conversion
+# pip install ".[materials,tools]"
 ```
 
-Optional extras:
+## Configuration
 
-```bash
-pip install ".[materials,tools]"   # includes openbabel + rdkit for SMILES conversion
-```
+### Environment Variables (~/.ils4gas/env.json)
 
-### 3. Configure Environment (~/.ils4gas/env.json)
-
-Environment variables are managed in `~/.ils4gas/env.json`. This file is created automatically on first run with default values.
-
-Edit or create `~/.ils4gas/env.json`:
+Created automatically on first run with default values. Edit as needed:
 
 ```json
 {
   "ILS4GAS_TRAIN_EB_PATH": "/path/to/properties.pkl",
   "ILS4GAS_QM_FEATURE_PATH": "/path/to/dft_features.pkl",
   "ILS4GAS_MOLECULE_GEN_SCRIPT": "/path/to/generation_script.sh",
-  "ILS4GAS_EB_PREDICT_SCRIPT": "/personal/test/dwl/ils4gas-models/Model/Property_pred/Eb_predict.py"
+  "ILS4GAS_EB_PREDICT_SCRIPT": "/path/to/Eb_predict.py"
 }
 ```
 
 See [Environment Variables](#environment-variables) for the complete list.
 
-### 4. Configure LLM (~/.ils4gas/config.json)
-
-Copy the example config and set your API keys:
+### LLM Provider (~/.ils4gas/config.json)
 
 ```bash
 mkdir -p ~/.ils4gas
@@ -86,27 +85,49 @@ Config example:
 ```
 
 **Key points:**
-- Environment variables in `${ENV:VAR_NAME}` format are resolved at runtime
+- `${ENV:VAR_NAME}` placeholders are resolved from environment variables at runtime
 - You can add multiple providers and switch between them at runtime
 - `currentModel` sets the default model on startup
 
-### 5. Choose Your Interface
+## Usage
 
-#### TUI Mode (default)
+Once installed, the `ils4gas` command is available from any directory:
+
+### TUI Mode (default)
 
 ```bash
 ils4gas
 ```
 
-#### Web UI Mode
+### Web UI Mode
 
 ```bash
 ils4gas web
 ```
 
-Open **http://localhost:8789** in your browser.
+**Local access:** Open **http://localhost:8789** in your browser.
 
-#### MCP Server Mode
+**Remote access (via SSH port forwarding):**
+
+If the server is running on a remote machine, use SSH local port forwarding to access it from your local browser:
+
+1. Set up SSH key authentication (one-time setup):
+   ```bash
+   # On your local machine, generate a key pair if you don't have one
+   ssh-keygen -t ed25519
+
+   # Copy the public key to the remote server
+   ssh-copy-id your-user@your-server
+   ```
+
+2. Forward the remote port to your local machine:
+   ```bash
+   ssh -N -L 8789:localhost:8789 your-user@your-server
+   ```
+
+3. Open **http://localhost:8789** in your local browser.
+
+### MCP Server Mode
 
 Expose tools for other agents (Claude Code, etc.):
 

@@ -1,4 +1,6 @@
+import getpass
 import os
+import socket
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -39,9 +41,15 @@ async def lifespan(app: FastAPI):
 
     current = deps.llm_service.get_current_model()
     external_tools = len(deps.mcp_service.list_all_tools())
+    port = os.environ.get("ILS4GAS_WEB_PORT", "8789")
     print(f"  model: {current['id']}")
     print(f"  mcp  : {len(mcp_entries)} external servers, {external_tools} external tools")
-    print(f"  open : http://0.0.0.0:8789  (ILS4GAS Web UI)")
+    print()
+    print(f"  Local:   http://localhost:{port}")
+    hostname = socket.gethostname()
+    print(f"  Remote:  ssh -N -L {port}:localhost:{port} {getpass.getuser()}@{hostname}")
+    print("           (set up SSH key first: ssh-copy-id user@server)")
+    print(f"           Then open http://localhost:{port} in your local browser")
 
     yield
 
@@ -94,6 +102,7 @@ def run_web(port: int = None, host: str = None):
     actual = find_free_port(p, h)
     if actual != p:
         print(f"  port {p} in use, using {actual}")
+    os.environ["ILS4GAS_WEB_PORT"] = str(actual)
     uvicorn.run("backend.main:app", host=h, port=actual, reload=False)
 
 
