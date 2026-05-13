@@ -4,7 +4,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from backend.agents.react_agent import ReActAgent
 from backend.api.deps import get_llm_service, get_session_service
 from backend.core.context import WorkspaceContext
-from backend.skills.registry import SkillRegistry
 
 router = APIRouter()
 
@@ -12,12 +11,6 @@ router = APIRouter()
 def _make_agent():
     llm = get_llm_service()
     system_prompt = WorkspaceContext().build_system_prompt()
-
-    registry = SkillRegistry()
-    registry.load_all()
-    skill_prompts = registry.get_active_prompts()
-    if skill_prompts:
-        system_prompt = system_prompt + "\n\n" + skill_prompts
 
     return ReActAgent(
         llm_service=llm,

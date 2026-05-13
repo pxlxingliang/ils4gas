@@ -11,9 +11,9 @@ from backend.agents.react_agent import ReActAgent
 from backend.services.llm_service import LLMService
 from backend.services.session_service import SessionService
 from backend.tools.loader import load_tools_from_mcp_modules
+from backend.tools.builtin import register_builtin_tools
 from backend.core.context import WorkspaceContext
 from backend.core.events import AgentEventType
-from backend.skills.registry import SkillRegistry
 from backend.services.title_service import generate_title
 
 COMMAND_DESCRIPTIONS = {
@@ -99,16 +99,12 @@ class ChatScreen(Screen):
         self._llm = LLMService()
         self._sess = SessionService()
         self._tool_registry = load_tools_from_mcp_modules()
+        self._tool_registry.extend(register_builtin_tools())
         self._llm.tool_registry = self._tool_registry
         self._session_id: str = ""
 
     def _make_agent(self):
         system_prompt = WorkspaceContext().build_system_prompt()
-        registry = SkillRegistry()
-        registry.load_all()
-        skill_prompts = registry.get_active_prompts()
-        if skill_prompts:
-            system_prompt = system_prompt + "\n\n" + skill_prompts
         return ReActAgent(
             llm_service=self._llm,
             tool_registry=self._tool_registry,

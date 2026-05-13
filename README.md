@@ -16,7 +16,7 @@
 
 ```bash
 # 1. Create conda environment
-conda create -n ils4gas python=3.11 nodejs=20 -y
+conda create -n ils4gas python=3.11 nodejs=20 numpy scipy rdkit openbabel -y
 conda activate ils4gas
 
 # 2. Clone the repository
@@ -134,6 +134,86 @@ ils4gas mcp --transport sse --port 50001             # SSE (network clients)
 ils4gas mcp --transport streamable-http --port 50001 # HTTP streaming
 ```
 
+## Skills — Adding Your Own Custom Instructions
+
+Skills let you teach the agent specialized domain knowledge. Each skill is a simple Markdown file — the agent loads them **on-demand** when it recognizes a matching task.
+
+### Quick Start
+
+Create a skill directory with a `SKILL.md` file:
+
+```bash
+mkdir -p ~/.ils4gas/skills/my_skill
+```
+
+Write `~/.ils4gas/skills/my_skill/SKILL.md`:
+
+```markdown
+---
+name: my_skill
+version: "1.0"
+description: Describe what this skill does in one sentence
+author: Your Name
+tags: [tag1, tag2]
+trigger_keywords: [keyword1, keyword2]
+---
+
+# My Skill Title
+
+## When to Use
+Explain when this skill should be applied.
+
+## Workflow
+1. Step one
+2. Step two
+3. Step three
+
+## Guidelines
+- Important rules or conventions to follow
+- Output format requirements
+```
+
+That's it — the agent will discover the skill on next startup. You don't need to restart if the agent is already running; new sessions pick up skills automatically.
+
+### How It Works
+
+1. **Discovery** — On startup, the agent scans `~/.ils4gas/skills/` for directories containing `SKILL.md`. Only the YAML front matter (name, description) is loaded — the full content stays on disk.
+
+2. **On-Demand Loading** — When you ask a question, the agent decides if a skill is relevant. If so, it calls the `load_skill` tool, which loads the full `SKILL.md` content and injects it into the conversation. The skill's directory path is also returned, so the agent can read additional files from the skill directory if needed.
+
+3. **Persistence** — Once loaded, the skill content stays in the conversation history. The agent won't reload it on subsequent turns.
+
+### Large Skills: Split Into Multiple Files
+
+For complex skills, avoid putting everything into one huge `SKILL.md`. Instead, keep `SKILL.md` concise and reference additional files that the agent can read on-demand:
+
+```
+~/.ils4gas/skills/deep_skill/
+├── SKILL.md            # Core instructions + index of additional files
+├── advanced.md         # Advanced usage scenarios
+├── examples.md         # Worked examples
+└── reference.md        # API reference or lookup tables
+```
+
+In `SKILL.md`, guide the agent:
+
+```markdown
+# Deep Skill
+
+## Basic Workflow
+1. Follow the steps below.
+2. For advanced scenarios, read `advanced.md` in this directory.
+3. For worked examples, read `examples.md`.
+
+## When to Read Additional Files
+- If the user asks about edge cases → read `advanced.md`
+- If the user wants concrete examples → read `examples.md`
+- If the user asks about specific parameters → read `reference.md`
+```
+
+The agent receives the skill directory path when it loads the skill, so it can use the `read_file` tool to fetch additional files only when needed. This keeps the initial context lean while preserving access to deep detail.
+
+
 ## Environment Variables
 
 All environment variables are managed via `~/.ils4gas/env.json`:
@@ -157,6 +237,7 @@ All environment variables are managed via `~/.ils4gas/env.json`:
 See the `docs/` directory for developer documentation:
 
 - **[docs/MCP_TOOLS.md](docs/MCP_TOOLS.md)** — How to add custom MCP tools
+- **[docs/SKILLS.md](docs/SKILLS.md)** — Skills system architecture (on-demand loading design)
 - **[docs/DESIGN.md](docs/DESIGN.md)** — Architecture and design decisions
 - **[docs/STRUCTURE.md](docs/STRUCTURE.md)** — Codebase structure guide
 

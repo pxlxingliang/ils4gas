@@ -17,6 +17,7 @@ from backend.services.session_service import SessionService
 from backend.services.mcp_service import MCPService
 from backend.tools.mcp_adapter import MCPServerConfig
 from backend.tools.loader import load_tools_from_mcp_modules
+from backend.tools.builtin import register_builtin_tools
 
 
 @asynccontextmanager
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI):
 
     # Load built-in MCP tools for web chat
     tool_registry = load_tools_from_mcp_modules()
+    tool_registry.extend(register_builtin_tools())
     print(f"  tools: {len(tool_registry)} built-in tools loaded")
 
     deps.llm_service = LLMService(tool_registry=tool_registry)

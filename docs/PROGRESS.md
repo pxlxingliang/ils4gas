@@ -1,10 +1,10 @@
 # ILS4GAS Project Progress
 
-Last updated: 2026-05-09 (Session 2)
+Last updated: 2026-05-13 (Session 3 — Skills refactor: on-demand loading)
 
-## Overall Status: ~60% complete
+## Overall Status: ~65% complete
 
-Core chat, MCP tools, web UI, TUI, agent framework, skills, and workspace context are working.
+Core chat, MCP tools, web UI, TUI, agent framework, skills (on-demand loading), and workspace context are working.
 Memory system, advanced agents, A2A, evaluation, built-in tools, and middleware are not yet implemented.
 
 ---
@@ -35,7 +35,7 @@ Memory system, advanced agents, A2A, evaluation, built-in tools, and middleware 
 | `plan_solve_agent.py` | 12 | ○ Stub | `raise NotImplementedError` |
 | `a2a_agent.py` | 0 | ✗ Empty | A2A orchestrator entry point |
 
-### services/ — Business Service Layer (70%)
+### services/ — Business Service Layer (80%)
 
 | File | Lines | Status | Notes |
 |------|-------|--------|-------|
@@ -44,22 +44,28 @@ Memory system, advanced agents, A2A, evaluation, built-in tools, and middleware 
 | `mcp_service.py` | 55 | ✓ | MCP server connect/disconnect/tool execution |
 | `title_service.py` | 25 | ✓ | Auto-generate session titles via LLM on first message |
 | `memory_service.py` | 0 | ✗ | |
-| `skill_service.py` | 0 | ✗ | |
 | `workspace_service.py` | 0 | ✗ | |
 | `scheduler_service.py` | 0 | ✗ | |
 
-### skills/ — Skills System (80%)
+### tools/builtin/ — Built-in Tools (incl. Skills) (100%)
 
 | File | Lines | Status | Notes |
 |------|-------|--------|-------|
-| `__init__.py` | 30 | ✓ | `Skill`, `SkillMeta` dataclasses |
-| `registry.py` | 65 | ✓ | Discover, load, load_all, match_by_keyword, get_active_prompts |
-| `loader.py` | 75 | ✓ | Parse SKILL.md YAML, dynamic skill.py/tools.py import |
-| `executor.py` | 22 | ✓ | Execute Skill, inject prompt |
-| `validator.py` | 28 | ✓ | Validate skill dir and SKILL.md |
-| `creator.py` | 20 | ✓ | `create_manual()`, `create_from_conversation()` is stub |
-| `builtin/code_review.py` | 0 | ✗ | |
-| `builtin/data_analysis.py` | 0 | ✗ | |
+| `__init__.py` | 30 | ✓ | `register_builtin_tools()` — registers all builtin tools incl. `load_skill` |
+| `read.py` | 176 | ✓ | File read with offset/limit, binary detection |
+| `glob.py` | 77 | ✓ | File pattern matching |
+| `grep.py` | 184 | ✓ | Content search (rg fallback to Python) |
+| `bash.py` | 129 | ✓ | Shell command execution with timeout |
+| `write.py` | 68 | ✓ | Create/overwrite files with diff |
+| `edit.py` | 202 | ✓ | String replacement with multi-strategy matching |
+| `webfetch.py` | 143 | ✓ | Fetch and convert web content |
+| `websearch.py` | 96 | ✓ | Web search via DuckDuckGo |
+| `skill.py` | 174 | ✓ | Skill registry, discovery, on-demand loading (`load_skill` tool) |
+
+**Core mechanic**: Skills are loaded **on-demand** via a `load_skill` tool registered into `ToolRegistry`.
+Agent startup only exposes skill summaries (name + description). When LLM calls `load_skill(name)`,
+the full SKILL.md content is returned along with the skill's directory path.
+Content persists in conversation history across turns.
 
 ### tools/ — Tool System (55%)
 
@@ -160,8 +166,9 @@ Web SSE / WebSocket / TUI
         ▼
     ReActAgent (react_agent.py)
         ├── WorkspaceContext → ~/.ils4gas/workspace/{AGENT,PERSONA,MEMORY}.md
-        ├── SkillRegistry    → ~/.ils4gas/skills/{name}/SKILL.md + skill.py
-        └── ToolRegistry     → mcp_server/modules/*.py (MCP tools)
+        └── ToolRegistry        → mcp_server/modules/*.py (MCP tools)
+                                 → tools/builtin/*.py (builtin tools incl. load_skill)
+                                   (skill summary on startup, full content via load_skill tool)
                 │
                 ▼
         LLMService → OpenAI-compatible API

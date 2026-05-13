@@ -49,23 +49,19 @@ Lowest-level abstractions with no external dependencies.
 | `registry.py` | Tool registration, discovery, namespace isolation |
 | `mcp_adapter.py` | MCP transport adapters (stdio / SSE / HTTP) |
 | `mcp_manager.py` | Multi-server lifecycle management, lazy loading |
+| `loader.py` | Load MCP module tools into ToolRegistry |
 | `chain.py` | Tool pipeline orchestration |
 | `async_executor.py` | Timeout / retry / concurrency control executor |
 | `permission.py` | `ToolPermission` grading + permission manager |
-| `builtin/file_tools.py` | File read, write, edit, search |
-| `builtin/web_tools.py` | HTTP requests, web scraping |
-| `builtin/code_tools.py` | Sandboxed code execution |
-| `builtin/system_tools.py` | System info, shell commands |
-
-### `backend/skills/` — Skills System
-
-| File | Purpose |
-|------|---------|
-| `registry.py` | Skill registration and discovery (scan SKILL.md) |
-| `loader.py` | Dynamic skill.py module loading |
-| `executor.py` | Skill execution engine |
-| `creator.py` | Auto-create skills from conversations (LLM-generated) |
-| `validator.py` | Skill parameter and security validation |
+| `builtin/read.py` | Read files with offset/limit |
+| `builtin/glob.py` | File pattern matching |
+| `builtin/grep.py` | Content search with regex |
+| `builtin/bash.py` | Shell command execution |
+| `builtin/write.py` | Create/overwrite files |
+| `builtin/edit.py` | Exact string replacement |
+| `builtin/webfetch.py` | Fetch web content |
+| `builtin/websearch.py` | Web search (DuckDuckGo) |
+| `builtin/skill.py` | Skill registration, discovery, on-demand loading (`load_skill` tool) |
 
 ### `backend/memory/` — Memory & Knowledge Layer
 
@@ -103,7 +99,6 @@ Lowest-level abstractions with no external dependencies.
 | `llm_service.py` | LLM management: reads `~/.ils4gas/config.json`, creates providers |
 | `session_service.py` | Session CRUD (SQLite, stores at `~/.ils4gas/data/sessions.db`) |
 | `mcp_service.py` | MCP server connect / disconnect / tool discovery |
-| `skill_service.py` | Skill load / unload / execute |
 | `memory_service.py` | Memory read / write / search |
 | `workspace_service.py` | Context file read / write (`~/.ils4gas/workspace/`) |
 | `scheduler_service.py` | APScheduler cron jobs |

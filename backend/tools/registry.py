@@ -42,6 +42,10 @@ class ToolRegistry:
     def to_openai_tools(self) -> List[Dict]:
         return [t.to_openai_schema() for t in self._tools.values()]
 
+    def extend(self, other: "ToolRegistry") -> None:
+        for tool in other.list_all():
+            self.register(tool)
+
     def __len__(self) -> int:
         return len(self._tools)
 
