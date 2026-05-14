@@ -6,12 +6,6 @@ from typing import Literal, Dict, Any, Optional
 
 from backend.mcp_server import mcp
 
-DB_TYPE_TO_ENV = {
-    "dft": "ILS4GAS_DFT_DB_PATH",
-    "ml": "ILS4GAS_ML_DB_PATH",
-    "exp": "ILS4GAS_EXP_DB_PATH",
-}
-
 DISALLOWED_KEYWORDS = [
     "INSERT",
     "REPLACE",
@@ -85,16 +79,20 @@ def _validate_sql(query: str) -> Optional[str]:
     return None
 
 
-def _open_db(db_type: str):
-    env_var = DB_TYPE_TO_ENV[db_type]
-    db_path = os.environ.get(env_var, "")
-    if not db_path:
+def _open_db(db_path: str, db_type: str):
+    if db_type != "sqlite3":
         return None, {
             "success": False,
             "error": (
-                f"Environment variable {env_var} is not set. "
-                f"Please set it to the path of the {db_type} database."
+                f"Unsupported database type '{db_type}'. "
+                "Only 'sqlite3' is currently supported."
             ),
+        }
+
+    if not db_path:
+        return None, {
+            "success": False,
+            "error": "Database path is empty. Please provide a valid path to the SQLite database file.",
         }
 
     if not Path(db_path).exists():
@@ -114,7 +112,8 @@ def _open_db(db_type: str):
 
 @mcp.tool()
 def sqlite_query(
-    db_type: Literal["dft", "ml", "exp"],
+    db_path: str,
+    db_type: Literal["sqlite3"],
     query: str,
 ) -> Dict[str, Any]:
     """
@@ -127,10 +126,8 @@ def sqlite_query(
     the limit, the `truncated` flag is set to True and only the first N rows are returned.
 
     Args:
-        db_type (str): The type of database to query.
-            - "dft": DFT feature database (requires ILS4GAS_DFT_DB_PATH)
-            - "ml": ML prediction database (requires ILS4GAS_ML_DB_PATH)
-            - "exp": Experimental data database (requires ILS4GAS_EXP_DB_PATH)
+        db_path (str): Path to the SQLite database file.
+        db_type (str): Type of database. Currently only "sqlite3" is supported.
         query (str): A read-only SQL query (SELECT / EXPLAIN / WITH ... SELECT).
 
     Returns:
@@ -155,7 +152,7 @@ def sqlite_query(
     except ValueError:
         max_rows = 10
 
-    conn, err = _open_db(db_type)
+    conn, err = _open_db(db_path, db_type)
     if err:
         return err
 
@@ -197,16 +194,15 @@ _TABLE_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 @mcp.tool()
 def sqlite_list_tables(
-    db_type: Literal["dft", "ml", "exp"],
+    db_path: str,
+    db_type: Literal["sqlite3"],
 ) -> Dict[str, Any]:
     """
     List all user tables in a SQLite database.
 
     Args:
-        db_type (str): The type of database to list tables from.
-            - "dft": DFT feature database (requires ILS4GAS_DFT_DB_PATH)
-            - "ml": ML prediction database (requires ILS4GAS_ML_DB_PATH)
-            - "exp": Experimental data database (requires ILS4GAS_EXP_DB_PATH)
+        db_path (str): Path to the SQLite database file.
+        db_type (str): Type of database. Currently only "sqlite3" is supported.
 
     Returns:
         A dictionary with:
@@ -215,7 +211,7 @@ def sqlite_list_tables(
             - tables (list): List of table names (only when success is True).
             - count (int): Number of tables found (only when success is True).
     """
-    conn, err = _open_db(db_type)
+    conn, err = _open_db(db_path, db_type)
     if err:
         return err
 
@@ -238,7 +234,8 @@ def sqlite_list_tables(
 
 @mcp.tool()
 def sqlite_list_columns(
-    db_type: Literal["dft", "ml", "exp"],
+    db_path: str,
+    db_type: Literal["sqlite3"],
     table_name: str,
 ) -> Dict[str, Any]:
     """
@@ -248,10 +245,8 @@ def sqlite_list_columns(
     underscores, and the table must exist in the database.
 
     Args:
-        db_type (str): The type of database to query.
-            - "dft": DFT feature database (requires ILS4GAS_DFT_DB_PATH)
-            - "ml": ML prediction database (requires ILS4GAS_ML_DB_PATH)
-            - "exp": Experimental data database (requires ILS4GAS_EXP_DB_PATH)
+        db_path (str): Path to the SQLite database file.
+        db_type (str): Type of database. Currently only "sqlite3" is supported.
         table_name (str): Name of the table to inspect (e.g., 'molecules', 'features').
 
     Returns:
@@ -272,7 +267,7 @@ def sqlite_list_columns(
             ),
         }
 
-    conn, err = _open_db(db_type)
+    conn, err = _open_db(db_path, db_type)
     if err:
         return err
 
