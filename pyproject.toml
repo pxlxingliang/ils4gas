@@ -15,6 +15,7 @@ dependencies = [
     "openai>=1.60.0",
     "rdkit",
     "textual>=0.80.0",
+    "tiktoken>=0.7.0",
     "uvicorn[standard]>=0.32.0",
 ]
 

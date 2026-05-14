@@ -2,6 +2,7 @@ from typing import AsyncIterator, Dict, List
 
 from backend.core.agent import BaseAgent, AgentState
 from backend.core.events import AgentEvent, AgentEventType
+from backend.core.token_counter import count_tokens
 
 
 class SimpleAgent(BaseAgent):
@@ -15,6 +16,13 @@ class SimpleAgent(BaseAgent):
 
     async def stream_run(self, messages: List[Dict]) -> AsyncIterator[AgentEvent]:
         self._state = AgentState.RUNNING
+        provider = self.llm.get_provider()
+        model_name = provider.model_name
+
+        system_messages = [{"role": "system", "content": self.system_prompt}]
+        full_messages = system_messages + messages
+        prompt_tokens = count_tokens(full_messages, model_name)
+
         try:
             accumulated = ""
             async for chunk in self.llm.astream_invoke(messages):
@@ -25,9 +33,16 @@ class SimpleAgent(BaseAgent):
                     type=AgentEventType.CONTENT_CHUNK,
                     data={"text": chunk},
                 )
+            done_data: dict = {
+                "full_text": accumulated,
+                "prompt_tokens": prompt_tokens,
+            }
+            usage = provider.last_usage
+            if usage:
+                done_data["usage"] = usage.to_dict()
             yield AgentEvent(
                 type=AgentEventType.DONE,
-                data={"full_text": accumulated},
+                data=done_data,
             )
         except Exception as e:
             self._state = AgentState.ERROR

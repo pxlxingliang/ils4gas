@@ -3,6 +3,7 @@ from typing import AsyncIterator, Dict, List
 
 from backend.core.agent import BaseAgent, AgentState
 from backend.core.events import AgentEvent, AgentEventType
+from backend.core.token_counter import count_tokens
 
 
 class ReActAgent(BaseAgent):
@@ -93,18 +94,22 @@ class ReActAgent(BaseAgent):
         full_messages += messages
         loop_messages = list(full_messages)
 
+        provider = self.llm.get_provider()
+        model_name = provider.model_name
+        prompt_tokens = count_tokens(full_messages, model_name)
+
         try:
             while self._state == AgentState.RUNNING:
                 if self._state == AgentState.PAUSED:
                     break
 
-                provider = self.llm.get_provider()
                 stream = await provider.async_client.chat.completions.create(
-                    model=provider.model_name,
+                    model=model_name,
                     messages=loop_messages,
                     tools=tools if tools else None,
                     tool_choice="auto" if tools else None,
                     stream=True,
+                    stream_options={"include_usage": True},
                 )
 
                 tool_calls_acc: dict = {}
@@ -115,6 +120,19 @@ class ReActAgent(BaseAgent):
                 async for chunk in stream:
                     if self._state != AgentState.RUNNING:
                         break
+
+                    if chunk.usage:
+                        from backend.core.llm import ProviderUsage
+
+                        provider._last_usage = ProviderUsage(
+                            prompt_tokens=chunk.usage.prompt_tokens or 0,
+                            completion_tokens=chunk.usage.completion_tokens or 0,
+                            total_tokens=chunk.usage.total_tokens or 0,
+                        )
+
+                    if not chunk.choices:
+                        continue
+
                     delta = chunk.choices[0].delta
 
                     if delta.content:
@@ -189,9 +207,16 @@ class ReActAgent(BaseAgent):
                     continue
                 else:
                     if text_content:
+                        usage = provider.last_usage
+                        done_data: dict = {
+                            "full_text": text_content,
+                            "prompt_tokens": prompt_tokens,
+                        }
+                        if usage:
+                            done_data["usage"] = usage.to_dict()
                         yield AgentEvent(
                             type=AgentEventType.DONE,
-                            data={"full_text": text_content},
+                            data=done_data,
                         )
                     break
 

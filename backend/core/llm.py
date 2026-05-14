@@ -4,6 +4,25 @@ from typing import Iterator, List, Dict, Any, Optional, AsyncIterator
 from openai import OpenAI, AsyncOpenAI
 
 
+class ProviderUsage:
+    def __init__(
+        self,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        total_tokens: int = 0,
+    ):
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+        self.total_tokens = total_tokens
+
+    def to_dict(self) -> Dict[str, int]:
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+        }
+
+
 class LLMProvider(ABC):
     @abstractmethod
     def invoke(self, messages: List[Dict], **kwargs) -> str:
@@ -33,6 +52,11 @@ class LLMProvider(ABC):
     def context_limit(self) -> int:
         ...
 
+    @property
+    @abstractmethod
+    def last_usage(self) -> Optional[ProviderUsage]:
+        ...
+
 
 class OpenAICompatibleProvider(LLMProvider):
     def __init__(
@@ -46,18 +70,36 @@ class OpenAICompatibleProvider(LLMProvider):
         self._context_limit = context_limit
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.async_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        self._last_usage: Optional[ProviderUsage] = None
 
     def invoke(self, messages: List[Dict], **kwargs) -> str:
         resp = self.client.chat.completions.create(
             model=self._model_name, messages=messages, **kwargs
         )
+        if resp.usage:
+            self._last_usage = ProviderUsage(
+                prompt_tokens=resp.usage.prompt_tokens,
+                completion_tokens=resp.usage.completion_tokens,
+                total_tokens=resp.usage.total_tokens,
+            )
         return resp.choices[0].message.content or ""
 
     def stream_invoke(self, messages: List[Dict], **kwargs) -> Iterator[str]:
+        stream_kwargs = {**kwargs}
+        if "stream_options" not in stream_kwargs:
+            stream_kwargs["stream_options"] = {"include_usage": True}
         stream = self.client.chat.completions.create(
-            model=self._model_name, messages=messages, stream=True, **kwargs
+            model=self._model_name, messages=messages, stream=True, **stream_kwargs
         )
         for chunk in stream:
+            if chunk.usage:
+                self._last_usage = ProviderUsage(
+                    prompt_tokens=chunk.usage.prompt_tokens or 0,
+                    completion_tokens=chunk.usage.completion_tokens or 0,
+                    total_tokens=chunk.usage.total_tokens or 0,
+                )
+            if not chunk.choices:
+                continue
             delta = chunk.choices[0].delta
             if delta.content:
                 yield delta.content
@@ -66,15 +108,32 @@ class OpenAICompatibleProvider(LLMProvider):
         resp = await self.async_client.chat.completions.create(
             model=self._model_name, messages=messages, **kwargs
         )
+        if resp.usage:
+            self._last_usage = ProviderUsage(
+                prompt_tokens=resp.usage.prompt_tokens,
+                completion_tokens=resp.usage.completion_tokens,
+                total_tokens=resp.usage.total_tokens,
+            )
         return resp.choices[0].message.content or ""
 
     async def astream_invoke(
         self, messages: List[Dict], **kwargs
     ) -> AsyncIterator[str]:
+        stream_kwargs = {**kwargs}
+        if "stream_options" not in stream_kwargs:
+            stream_kwargs["stream_options"] = {"include_usage": True}
         stream = await self.async_client.chat.completions.create(
-            model=self._model_name, messages=messages, stream=True, **kwargs
+            model=self._model_name, messages=messages, stream=True, **stream_kwargs
         )
         async for chunk in stream:
+            if chunk.usage:
+                self._last_usage = ProviderUsage(
+                    prompt_tokens=chunk.usage.prompt_tokens or 0,
+                    completion_tokens=chunk.usage.completion_tokens or 0,
+                    total_tokens=chunk.usage.total_tokens or 0,
+                )
+            if not chunk.choices:
+                continue
             delta = chunk.choices[0].delta
             if delta.content:
                 yield delta.content
@@ -86,3 +145,7 @@ class OpenAICompatibleProvider(LLMProvider):
     @property
     def context_limit(self) -> int:
         return self._context_limit
+
+    @property
+    def last_usage(self) -> Optional[ProviderUsage]:
+        return self._last_usage

@@ -10,7 +10,15 @@
     "send": "Send",
     "stop": "Stop",
     "thinking": "Thinking...",
-    "empty": "Start a new conversation"
+    "empty": "Start a new conversation",
+    "truncated": "Output truncated by user",
+    "queued": "Waiting for previous task..."
+  },
+  "tokens": {
+    "input": "Input",
+    "prompt": "Prompt",
+    "completion": "Completion",
+    "total": "Total"
   },
   "model": {
     "selector": "Model",

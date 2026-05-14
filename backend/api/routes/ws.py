@@ -1,3 +1,4 @@
+import asyncio
 import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -24,6 +25,43 @@ async def ws_chat(websocket: WebSocket):
     await websocket.accept()
     sess = get_session_service()
     agent = _make_agent()
+    _stream_task = None
+
+    async def _run_stream(session_id: str, messages: list):
+        text_accum: list[str] = []
+        done_data: dict = {}
+        try:
+            async for event in agent.stream_run(messages):
+                await websocket.send_json(event.to_dict())
+                if event.data.get("text") and event.type.value == "content_chunk":
+                    text_accum.append(event.data["text"])
+                elif event.type.value == "done":
+                    done_data = dict(event.data)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+
+        full_text = "".join(text_accum)
+        if full_text and not any(tc.get("function", {}).get("name") for tc in (done_data.get("tool_calls") or [])):
+            full_text += "\n\n*(Output truncated by user)*"
+
+        if full_text:
+            metadata = None
+            usage = done_data.get("usage")
+            if usage:
+                metadata = {"token_usage": usage}
+            sess.add_message(session_id, "assistant", full_text, metadata=metadata)
+
+        final_done: dict = {"type": "done", "session_id": session_id}
+        if "prompt_tokens" in done_data:
+            final_done["prompt_tokens"] = done_data["prompt_tokens"]
+        if "usage" in done_data:
+            final_done["usage"] = done_data["usage"]
+        try:
+            await websocket.send_json(final_done)
+        except Exception:
+            pass
 
     try:
         while True:
@@ -33,6 +71,8 @@ async def ws_chat(websocket: WebSocket):
             msg_type = data.get("type", "")
             if msg_type == "cancel":
                 agent.cancel()
+                if _stream_task and not _stream_task.done():
+                    _stream_task.cancel()
                 await websocket.send_json({"type": "done", "cancelled": True})
                 continue
 
@@ -51,18 +91,9 @@ async def ws_chat(websocket: WebSocket):
             messages.append({"role": "user", "content": content})
             sess.add_message(session_id, "user", content)
 
-            text_accum: list[str] = []
-
-            async for event in agent.stream_run(messages):
-                await websocket.send_json(event.to_dict())
-                if event.data.get("text") and event.type.value == "content_chunk":
-                    text_accum.append(event.data["text"])
-
-            full_text = "".join(text_accum)
-            if full_text:
-                sess.add_message(session_id, "assistant", full_text)
-
-            await websocket.send_json({"type": "done", "session_id": session_id})
+            _stream_task = asyncio.create_task(_run_stream(session_id, messages))
+            await _stream_task
 
     except WebSocketDisconnect:
-        pass
+        if _stream_task and not _stream_task.done():
+            _stream_task.cancel()

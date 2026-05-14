@@ -10,7 +10,15 @@
     "send": "发送",
     "stop": "停止",
     "thinking": "思考中",
-    "empty": "开始一段新对话吧"
+    "empty": "开始一段新对话吧",
+    "truncated": "输出被用户截断",
+    "queued": "等待前面的任务完成..."
+  },
+  "tokens": {
+    "input": "输入",
+    "prompt": "提示词",
+    "completion": "回复",
+    "total": "合计"
   },
   "model": {
     "selector": "模型",

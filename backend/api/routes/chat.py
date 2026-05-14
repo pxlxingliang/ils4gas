@@ -87,10 +87,12 @@ async def stream_message(session_id: str, req: ChatRequest):
     sess.add_message(session_id, "user", req.content)
 
     async def generate():
+        _saved = False
         try:
             agent = _make_agent()
             text_accum: list[str] = []
             tool_calls: list[dict] = []
+            done_usage: dict = {}
 
             async for event in agent.stream_run(messages):
                 yield event.to_sse()
@@ -108,6 +110,8 @@ async def stream_message(session_id: str, req: ChatRequest):
                 elif event.type.value == "tool_call_end":
                     if tool_calls:
                         tool_calls[-1]["_result"] = event.data.get("result", "")
+                elif event.type.value == "done":
+                    done_usage = event.data.get("usage", {})
 
             full_text = "".join(text_accum)
             if full_text:
@@ -115,9 +119,13 @@ async def stream_message(session_id: str, req: ChatRequest):
                     {k: v for k, v in tc.items() if k != "_result"}
                     for tc in tool_calls
                 ] if tool_calls else None
+                metadata = {}
+                if done_usage:
+                    metadata["token_usage"] = done_usage
                 sess.add_message(
                     session_id, "assistant", full_text,
                     tool_calls=saved_calls,
+                    metadata=metadata if metadata else None,
                 )
                 for tc in tool_calls:
                     if "_result" in tc:
@@ -125,6 +133,7 @@ async def stream_message(session_id: str, req: ChatRequest):
                             session_id, "tool", tc["_result"],
                             tool_call_id=tc["id"],
                         )
+                _saved = True
 
             yield "data: [DONE]\n\n"
             asyncio.create_task(_maybe_generate_title(session_id, req.content))
@@ -132,6 +141,14 @@ async def stream_message(session_id: str, req: ChatRequest):
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
+        finally:
+            if not _saved:
+                if text_accum:
+                    full_text = "".join(text_accum)
+                    full_text += "\n\n*(Output truncated by user)*"
+                    sess.add_message(
+                        session_id, "assistant", full_text,
+                    )
 
     return StreamingResponse(
         generate(),

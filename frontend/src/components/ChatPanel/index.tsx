@@ -1,9 +1,15 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { useLocale } from "../../hooks/useLocale";
 import { useStore } from "../../store";
+
+interface TokenUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
 
 interface ToolCallSeg {
   type: "tool_call";
@@ -24,6 +30,66 @@ interface Message {
   role: string;
   segments: Segment[];
   isError?: boolean;
+  tokenUsage?: TokenUsage;
+}
+
+function buildMessagesFromApi(rawMessages: any[]): Message[] {
+  const result: Message[] = [];
+  let i = 0;
+  while (i < rawMessages.length) {
+    const m = rawMessages[i];
+
+    if (m.role === "tool") {
+      i++;
+      continue;
+    }
+
+    const segments: Segment[] = [];
+
+    if (m.content) {
+      segments.push({ type: "text", content: m.content });
+    }
+
+    if (m.tool_calls && Array.isArray(m.tool_calls)) {
+      for (const tc of m.tool_calls) {
+        let resultText = "";
+        let j = i + 1;
+        while (j < rawMessages.length && rawMessages[j].role === "tool") {
+          if (rawMessages[j].tool_call_id === tc.id) {
+            resultText = rawMessages[j].content || "";
+            break;
+          }
+          j++;
+        }
+        const fn = tc.function || {};
+        segments.push({
+          type: "tool_call",
+          tool_name: fn.name || "",
+          args: fn.arguments || "",
+          result: resultText,
+        });
+      }
+    }
+
+    let tokenUsage: TokenUsage | undefined;
+    const metaUsage = m.metadata?.token_usage;
+    if (metaUsage) {
+      tokenUsage = {
+        prompt_tokens: metaUsage.prompt_tokens || 0,
+        completion_tokens: metaUsage.completion_tokens || 0,
+        total_tokens: metaUsage.total_tokens || 0,
+      };
+    }
+
+    result.push({
+      id: m.id,
+      role: m.role,
+      segments,
+      tokenUsage,
+    });
+    i++;
+  }
+  return result;
 }
 
 export function ChatPanel() {
@@ -36,6 +102,24 @@ export function ChatPanel() {
   const messagesEnd = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const skipHistory = useRef(false);
+  const pendingUsageRef = useRef<TokenUsage | undefined>(undefined);
+
+  const estimateInputTokens = (text: string) => {
+    let cjk = 0;
+    for (let i = 0; i < text.length; i++) {
+      const c = text.charCodeAt(i);
+      if ((c >= 0x4e00 && c <= 0x9fff) || (c >= 0x3000 && c <= 0x303f)) cjk++;
+    }
+    const nonCjk = text.length - cjk;
+    return Math.floor(nonCjk / 4 + cjk / 1.8) + 1;
+  };
+
+  const inputTokens = useMemo(() => estimateInputTokens(input), [input]);
+
+  const formatTokens = (n: number) => {
+    if (n >= 1000) return (n / 1000).toFixed(1) + "K";
+    return String(n);
+  };
 
   const isAuthError = (msg: string) =>
     /api.?key|unauthorized|authentication|401|403|invalid.*key/i.test(msg);
@@ -49,12 +133,7 @@ export function ChatPanel() {
     fetch(`/api/v1/chat/${currentSessionId}/history`)
       .then((r) => r.json())
       .then((d) => {
-        const msgs = (d.messages || []).map((m: any) => ({
-          id: m.id,
-          role: m.role,
-          segments: [{ type: "text" as const, content: m.content || "" }],
-        }));
-        setMessages(msgs);
+        setMessages(buildMessagesFromApi(d.messages || []));
       })
       .catch(() => {});
   };
@@ -67,33 +146,9 @@ export function ChatPanel() {
     messagesEnd.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingSegments]);
 
-  const send = async () => {
-    const text = input.trim();
-    if (!text || streaming) return;
+  const messageQueueRef = useRef<string[]>([]);
 
-    let sid = currentSessionId;
-    if (!sid) {
-      try {
-        const res = await fetch("/api/v1/sessions", { method: "POST" });
-        const data = await res.json();
-        sid = data.id;
-        skipHistory.current = true;
-        setCurrentSessionId(sid);
-        const updated = await fetch("/api/v1/sessions").then((r) => r.json());
-        setSessions(updated.sessions || []);
-      } catch {
-        return;
-      }
-    }
-
-    setInput("");
-
-    const userMsg: Message = {
-      id: `local_${Date.now()}`,
-      role: "user",
-      segments: [{ type: "text", content: text }],
-    };
-    setMessages((prev) => [...prev, userMsg]);
+  const doStream = async (text: string, sid: string) => {
     setStreamingSegments([]);
     setStreaming(true);
 
@@ -138,12 +193,15 @@ export function ChatPanel() {
           if (data === "[DONE]") {
             setStreamingSegments((prev) => {
               if (prev.length > 0) {
+                const usage = pendingUsageRef.current;
+                pendingUsageRef.current = undefined;
                 setMessages((msgs) => [
                   ...msgs,
                   {
                     id: `assistant_${Date.now()}`,
                     role: "assistant",
                     segments: prev,
+                    tokenUsage: usage,
                   },
                 ]);
               }
@@ -154,7 +212,6 @@ export function ChatPanel() {
           try {
             const parsed = JSON.parse(data);
 
-            // AgentEvent format: {type, ...data fields}
             switch (parsed.type) {
               case "content_chunk":
                 if (parsed.text) {
@@ -198,14 +255,24 @@ export function ChatPanel() {
                 break;
 
               case "done":
+                if (parsed.prompt_tokens != null || parsed.usage) {
+                  pendingUsageRef.current = {
+                    prompt_tokens: parsed.prompt_tokens ?? parsed.usage?.prompt_tokens ?? 0,
+                    completion_tokens: parsed.usage?.completion_tokens ?? 0,
+                    total_tokens: parsed.usage?.total_tokens ?? 0,
+                  };
+                }
                 setStreamingSegments((prev) => {
                   if (prev.length > 0) {
+                    const usage = pendingUsageRef.current;
+                    pendingUsageRef.current = undefined;
                     setMessages((msgs) => [
                       ...msgs,
                       {
                         id: `assistant_${Date.now()}`,
                         role: "assistant",
                         segments: prev,
+                        tokenUsage: usage,
                       },
                     ]);
                   }
@@ -224,7 +291,22 @@ export function ChatPanel() {
         }
       }
     } catch (err: any) {
-      if (err.name === "AbortError") return;
+      if (err.name === "AbortError") {
+        setStreamingSegments((prev) => {
+          if (prev.length > 0) {
+            setMessages((msgs) => [
+              ...msgs,
+              {
+                id: `assistant_${Date.now()}`,
+                role: "assistant",
+                segments: [...prev, { type: "text", content: `\n\n*(${t.chat.truncated})*` } as TextSeg],
+              },
+            ]);
+          }
+          return [];
+        });
+        return;
+      }
       if (err.message?.includes("Failed to fetch") || err.name === "TypeError") {
         showError(t.error.network);
       } else {
@@ -233,10 +315,63 @@ export function ChatPanel() {
     } finally {
       setStreaming(false);
       abortRef.current = null;
+      flushQueue();
     }
   };
 
+  const flushQueue = () => {
+    if (messageQueueRef.current.length > 0) {
+      const next = messageQueueRef.current.shift()!;
+      doStream(next, currentSessionId!);
+    }
+  };
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text) return;
+
+    let sid = currentSessionId;
+    if (!sid) {
+      try {
+        const res = await fetch("/api/v1/sessions", { method: "POST" });
+        const data = await res.json();
+        sid = data.id;
+        skipHistory.current = true;
+        setCurrentSessionId(sid);
+        const updated = await fetch("/api/v1/sessions").then((r) => r.json());
+        setSessions(updated.sessions || []);
+      } catch {
+        return;
+      }
+    }
+
+    setInput("");
+
+    const userMsg: Message = {
+      id: `local_${Date.now()}`,
+      role: "user",
+      segments: [{ type: "text", content: text }],
+    };
+    setMessages((prev) => [...prev, userMsg]);
+
+    if (streaming) {
+      messageQueueRef.current.push(text);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `hint_${Date.now()}`,
+          role: "system",
+          segments: [{ type: "text", content: t.chat.queued }],
+        },
+      ]);
+      return;
+    }
+
+    doStream(text, sid);
+  };
+
   const stop = () => {
+    messageQueueRef.current = [];
     abortRef.current?.abort();
   };
 
@@ -284,17 +419,19 @@ export function ChatPanel() {
         <div ref={messagesEnd} />
       </div>
 
-      <InputBar
-        input={input}
-        setInput={setInput}
-        streaming={streaming}
-        onSend={send}
-        onStop={stop}
-        placeholder={t.chat.placeholder}
-        sendLabel={t.chat.send}
-        stopLabel={t.chat.stop}
-        onKeyDown={handleKeyDown}
-      />
+        <InputBar
+          input={input}
+          setInput={setInput}
+          streaming={streaming}
+          onSend={send}
+          onStop={stop}
+          placeholder={t.chat.placeholder}
+          sendLabel={t.chat.send}
+          stopLabel={t.chat.stop}
+          onKeyDown={handleKeyDown}
+          inputTokens={inputTokens}
+          formatTokens={formatTokens}
+        />
     </div>
   );
 }
@@ -318,6 +455,25 @@ function MessageBlock({ msg }: { msg: Message }) {
       {msg.segments.map((seg, i) => (
         <SegmentView key={i} seg={seg} role={msg.role} isError={msg.isError} />
       ))}
+      {!isUser && !isSystem && msg.tokenUsage && msg.tokenUsage.total_tokens > 0 && (
+        <div style={{
+          fontSize: "11px", color: "var(--text-muted)",
+          marginTop: "2px", paddingLeft: "4px",
+        }}>
+          {msg.tokenUsage.prompt_tokens > 0 && (
+            <span>{msg.tokenUsage.prompt_tokens.toLocaleString()} prompt</span>
+          )}
+          {msg.tokenUsage.completion_tokens > 0 && (
+            <span>
+              {msg.tokenUsage.prompt_tokens > 0 ? " + " : ""}
+              {msg.tokenUsage.completion_tokens.toLocaleString()} completion
+            </span>
+          )}
+          {msg.tokenUsage.total_tokens > 0 && (
+            <span> = {msg.tokenUsage.total_tokens.toLocaleString()} total</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -495,6 +651,7 @@ function TextBubble({
 function InputBar({
   input, setInput, streaming, onSend, onStop,
   placeholder, sendLabel, stopLabel, onKeyDown,
+  inputTokens, formatTokens,
 }: any) {
   return (
     <div
@@ -543,6 +700,14 @@ function InputBar({
           </button>
         )}
       </div>
+      {input.length > 0 && (
+        <div style={{
+          marginTop: "4px", fontSize: "11px",
+          color: "var(--text-muted)", textAlign: "right",
+        }}>
+          ~{formatTokens(inputTokens)} tokens
+        </div>
+      )}
     </div>
   );
 }

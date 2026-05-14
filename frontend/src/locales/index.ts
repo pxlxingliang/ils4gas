@@ -9,6 +9,14 @@ export interface LocaleDict {
     stop: string;
     thinking: string;
     empty: string;
+    truncated: string;
+    queued: string;
+  };
+  tokens: {
+    input: string;
+    prompt: string;
+    completion: string;
+    total: string;
   };
   model: { selector: string; loading: string; error: string };
   error: { auth: string; network: string; unknown: string };

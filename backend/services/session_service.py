@@ -105,6 +105,7 @@ class SessionService:
         content: str,
         tool_calls: Optional[List] = None,
         tool_call_id: Optional[str] = None,
+        metadata: Optional[Dict] = None,
     ) -> Optional[Dict]:
         if not self.get_session(session_id):
             return None
@@ -116,6 +117,8 @@ class SessionService:
             "tool_call_id": tool_call_id,
             "timestamp": _now(),
         }
+        if metadata:
+            msg["metadata"] = metadata
         msg_file = SESSIONS_DIR / f"{session_id}.json"
         messages = _read_json(msg_file) if msg_file.exists() else []
         messages.append(msg)

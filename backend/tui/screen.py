@@ -1,3 +1,4 @@
+import time
 from textual.screen import Screen
 from textual.containers import Vertical, Horizontal
 from textual.widgets import Static, Input, Label, Header, ListView, ListItem
@@ -14,6 +15,7 @@ from backend.tools.loader import load_tools_from_mcp_modules
 from backend.tools.builtin import register_builtin_tools
 from backend.core.context import WorkspaceContext
 from backend.core.events import AgentEventType
+from backend.core.token_counter import count_tokens, estimate_text_tokens
 from backend.services.title_service import generate_title
 
 COMMAND_DESCRIPTIONS = {
@@ -91,7 +93,7 @@ class CommandDropdown(ListView):
 class ChatScreen(Screen):
     BINDINGS = [
         Binding("ctrl+n", "new_session", "New"),
-        Binding("escape", "dismiss_dropdown", "Dismiss"),
+        Binding("escape", "handle_escape", "Cancel/Esc"),
     ]
 
     def __init__(self):
@@ -102,6 +104,12 @@ class ChatScreen(Screen):
         self._tool_registry.extend(register_builtin_tools())
         self._llm.tool_registry = self._tool_registry
         self._session_id: str = ""
+        self._agent = None
+        self._streaming = False
+        self._esc_pressed_at: float = 0.0
+        self._last_usage: dict = {}
+        self._cancel_hint: str = ""
+        self._pending_messages: list[str] = []
 
     def _make_agent(self):
         system_prompt = WorkspaceContext().build_system_prompt()
@@ -142,11 +150,62 @@ class ChatScreen(Screen):
         else:
             await dropdown.hide_dropdown()
 
-    async def action_dismiss_dropdown(self):
+    async def action_handle_escape(self):
         dropdown = self.query_one("#command-dropdown", CommandDropdown)
         if dropdown.display:
             await dropdown.hide_dropdown()
-        self.query_one("#chat-input", Input).focus()
+            self.query_one("#chat-input", Input).focus()
+            return
+
+        if not self._streaming:
+            return
+
+        now = time.monotonic()
+        if self._esc_pressed_at and (now - self._esc_pressed_at) < 1.5:
+            self._esc_pressed_at = 0.0
+            self._cancel_hint = ""
+            self._update_status()
+            if self._agent:
+                self._agent.cancel()
+            return
+
+        self._esc_pressed_at = now
+        self._cancel_hint = "Press Esc again to stop"
+        self._update_status()
+        self.set_timer(1.5, self._reset_esc)
+
+    def _reset_esc(self):
+        self._esc_pressed_at = 0.0
+        self._cancel_hint = ""
+        if self._streaming:
+            self._update_status()
+
+    def _update_status(self, token_info: str = ""):
+        model_name = self._llm.get_current_model().get("name", "?")
+        context_limit = self._llm.get_current_model().get("limit", {}).get("context", 128000)
+        parts = [
+            f"model: {model_name}",
+        ]
+        if self._cancel_hint:
+            parts.append(self._cancel_hint)
+        elif token_info:
+            parts.append(token_info)
+        else:
+            parts.append(f"limit: {context_limit // 1000}K")
+        parts.append(f"/ for commands | {len(self._tool_registry)} tools")
+        status = self.query_one(StatusBar)
+        status.update(" | ".join(parts))
+
+    def action_new_session(self):
+        history = self.query_one("#history", MessageHistory)
+        history.add_message("system", "Starting new session...")
+        sess = self._sess.create_session(
+            model_provider=self._llm.get_current_model().get("provider", ""),
+            model_name=self._llm.get_current_model().get("id", ""),
+        )
+        self._session_id = sess["id"]
+        history.clear()
+        self._update_status()
 
     @on(ListView.Selected)
     async def on_command_selected(self, event: ListView.Selected):
@@ -178,6 +237,13 @@ class ChatScreen(Screen):
 
         history = self.query_one("#history", MessageHistory)
         history.add_message("user", content)
+
+        if self._streaming:
+            self._pending_messages.append(content)
+            count = len(self._pending_messages)
+            self._update_status(f"{count} task(s) queued...")
+            return
+
         self.run_worker(self._stream_response(content), exclusive=False)
 
     # ── commands ──────────────────────────────────────────
@@ -200,7 +266,8 @@ class ChatScreen(Screen):
                 "  /help           Show this help\n"
                 "\n"
                 "Tips:\n"
-                "  Shift+Mouse drag to select and copy text"
+                "  Shift+Mouse drag to select and copy text\n"
+                "  Esc    Cancel streaming (press twice quickly)"
             )
             history.add_message("system", help_text)
 
@@ -225,14 +292,6 @@ class ChatScreen(Screen):
 
         self.app.push_screen(ModelSelectScreen(models, on_model_selected))
 
-    def _update_status(self):
-        model_name = self._llm.get_current_model().get("name", "?")
-        status = self.query_one(StatusBar)
-        status.update(
-            f"model: {model_name} | / for commands | {len(self._tool_registry)} tools"
-            f" | Shift+Mouse to select text | Ctrl+Q to quit"
-        )
-
     async def _auto_title(self, user_content: str):
         session = self._sess.get_session(self._session_id)
         if not session or session.get("title") != "New Chat":
@@ -252,8 +311,11 @@ class ChatScreen(Screen):
 
         thinking.update("thinking...")
         self._sess.add_message(self._session_id, "user", user_content)
+        self._streaming = True
+        self._last_usage = {}
+        self._cancel_hint = ""
+        self._esc_pressed_at = 0.0
 
-        # Build history, skipping tool-only messages (API rejects incomplete sequences)
         messages = []
         for msg in self._sess.get_messages(self._session_id)[:-1]:
             role = msg["role"]
@@ -269,11 +331,21 @@ class ChatScreen(Screen):
             messages.append(entry)
         messages.append({"role": "user", "content": user_content})
 
-        try:
-            agent = self._make_agent()
-            accumulated = ""
-            tool_calls: list[dict] = []
+        agent = self._make_agent()
+        self._agent = agent
+        system_messages = [{"role": "system", "content": agent.system_prompt}]
+        full_for_count = system_messages + messages
+        model_id = self._llm.current_model or ""
+        model_name = model_id.split("/", 1)[1] if "/" in model_id else model_id
+        prompt_tokens = count_tokens(full_for_count, model_name)
+        context_limit = self._llm.get_current_model().get("limit", {}).get("context", 128000)
+        self._update_status(f"tokens: {prompt_tokens:,}/{context_limit // 1000}K")
 
+        accumulated = ""
+        tool_calls: list[dict] = []
+        done_received = False
+
+        try:
             async for event in agent.stream_run(messages):
                 if event.type == AgentEventType.CONTENT_CHUNK:
                     accumulated += event.data["text"]
@@ -300,41 +372,56 @@ class ChatScreen(Screen):
                 elif event.type == AgentEventType.ERROR:
                     history.add_message("system", f"Error: {event.data.get('message', 'unknown')}")
 
-            if accumulated:
-                # Save assistant message with proper OpenAI tool_calls format
-                saved_calls = [
-                    {k: v for k, v in tc.items() if k != "_result"}
-                    for tc in tool_calls
-                ] if tool_calls else None
-                self._sess.add_message(
-                    self._session_id, "assistant", accumulated,
-                    tool_calls=saved_calls,
-                )
-                # Save individual tool result messages for complete history
-                for tc in tool_calls:
-                    if "_result" in tc:
-                        self._sess.add_message(
-                            self._session_id, "tool", tc["_result"],
-                            tool_call_id=tc["id"],
-                        )
-                # Auto-generate title on first user message
-                self.run_worker(
-                    self._auto_title(user_content),
-                    exclusive=False,
-                )
-
+                elif event.type == AgentEventType.DONE:
+                    done_received = True
+                    usage = event.data.get("usage", {})
+                    if usage:
+                        p = usage.get("prompt_tokens", 0)
+                        c = usage.get("completion_tokens", 0)
+                        t = usage.get("total_tokens", 0)
+                        self._update_status(f"tokens: {p:,} prompt + {c:,} completion = {t:,}")
+                        self._last_usage = usage
         except Exception as e:
             history.add_message("system", f"Error: {e}")
-        finally:
-            thinking.update("")
 
-    def action_new_session(self):
-        history = self.query_one("#history", MessageHistory)
-        history.add_message("system", "Starting new session...")
-        sess = self._sess.create_session(
-            model_provider=self._llm.get_current_model().get("provider", ""),
-            model_name=self._llm.get_current_model().get("id", ""),
-        )
-        self._session_id = sess["id"]
-        history.clear()
-        self._update_status()
+        if accumulated:
+            content = accumulated
+            if not done_received:
+                content += "\n\n*(Output truncated by user)*"
+            saved_calls = [
+                {k: v for k, v in tc.items() if k != "_result"}
+                for tc in tool_calls
+            ] if tool_calls else None
+            metadata = None
+            if self._last_usage:
+                metadata = {"token_usage": self._last_usage}
+            self._sess.add_message(
+                self._session_id, "assistant", content,
+                tool_calls=saved_calls,
+                metadata=metadata,
+            )
+            for tc in tool_calls:
+                if "_result" in tc:
+                    self._sess.add_message(
+                        self._session_id, "tool", tc["_result"],
+                        tool_call_id=tc["id"],
+                    )
+            self.run_worker(
+                self._auto_title(user_content),
+                exclusive=False,
+            )
+
+        thinking.update("")
+        self._streaming = False
+        self._agent = None
+
+        if self._pending_messages:
+            next_content = self._pending_messages.pop(0)
+            self.run_worker(self._stream_response(next_content), exclusive=False)
+            count = len(self._pending_messages)
+            if count:
+                self._update_status(f"{count} task(s) queued...")
+            else:
+                self._update_status()
+        else:
+            self._update_status()
